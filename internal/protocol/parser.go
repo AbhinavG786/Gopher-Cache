@@ -2,13 +2,13 @@ package parser
 
 import (
 	"strings"
-	"github.com/AbhinavG786/Gopher-Cache.git/internal/engine"
+	store "github.com/AbhinavG786/Gopher-Cache.git/internal/engine"
 	"time"
 )
 
 type StoreInterface interface{
-	Get(key string) (engine.Cache,bool)
-	Set(cache engine.Cache)
+	Get(key string) (store.Cache,bool)
+	Set(cache store.Cache)
 	Delete(key string)
 }
 
@@ -60,7 +60,7 @@ func Process(s StoreInterface,input string) string{
 			}
 		}
 
-		cache := engine.Cache{Key: key, Value: value}
+		cache := store.Cache{Key: key, Value: value}
 		if ttlPart != "" {
 			ttl, err := time.ParseDuration(ttlPart + "s")
 			if err != nil {

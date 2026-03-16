@@ -39,6 +39,12 @@ func (s *Store) Get(key string) (Cache,bool){
 	return val,ok
 }
 
+func (s *Store) Set(cache Cache) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.data[cache.Key] = cache
+}
+
 func (s *Store) Delete(key string){
 	s.mu.Lock()
 	defer s.mu.Unlock()
