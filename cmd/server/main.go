@@ -10,11 +10,14 @@ import (
 	"github.com/AbhinavG786/Gopher-Cache.git/internal/aof"
 	store "github.com/AbhinavG786/Gopher-Cache.git/internal/engine"
 	parser "github.com/AbhinavG786/Gopher-Cache.git/internal/protocol"
+	"github.com/AbhinavG786/Gopher-Cache.git/internal/pubsub"
 )
 
 func main(){
 	log.Println("Step 1: Engine Init")
 	store:=store.New()
+	log.Println("Hub Init")
+	hub:=pubsub.NewHub()
 	log.Println("Step 2: AOF Init")
 	aofFile,err:=aof.NewAOF("database.aof")
 	if err!=nil{
@@ -23,7 +26,7 @@ func main(){
 	defer aofFile.Close()
 	log.Println("Restoring data from AOF")
 	err=aofFile.Replay(func(line string) {
-		parser.Process(store, line)
+		parser.Process(store,hub, line)
 	})
 	if err!=nil{
 		log.Println("AOF Replay finished with Error/EOF:",err)
@@ -44,13 +47,20 @@ func main(){
 			fmt.Println("Connection Error")
 			continue
 		}
-		go handleClient(conn,store,aofFile)
+		go handleClient(conn,store,aofFile,hub)
 	}
 
 }
 
-func handleClient(conn net.Conn,store parser.StoreInterface,aofFile *aof.AOF){
-	defer conn.Close()
+func handleClient(conn net.Conn,store parser.StoreInterface,aofFile *aof.AOF,hub *pubsub.Hub){
+	var subscribedTopic string
+	var userChan chan string
+	defer func(){
+		if subscribedTopic!="" && userChan!=nil{
+			hub.Unsubscribe(subscribedTopic,userChan)
+		}
+	conn.Close()
+	}()
 	fmt.Println("New client connected:",conn.RemoteAddr())
 
 	scanner:=bufio.NewReader(conn)
@@ -65,7 +75,7 @@ func handleClient(conn net.Conn,store parser.StoreInterface,aofFile *aof.AOF){
 			continue
 		}
 		fmt.Println("Received from client:",line)
-		response:=parser.Process(store, line)
+		response, ch:=parser.Process(store,hub, line)
 		cmdUpper:=strings.ToUpper(strings.Fields(line)[0])
 		if cmdUpper=="SET" || cmdUpper=="DEL"{
 			if response=="Key set" || response=="Key deleted"{
@@ -74,6 +84,16 @@ func handleClient(conn net.Conn,store parser.StoreInterface,aofFile *aof.AOF){
 					log.Println("Error occurred while appending to AOF:",err)
 				}
 			}
+		}
+		if ch!=nil{
+			parts:=strings.Fields(line)
+			subscribedTopic=parts[1]
+			userChan=ch
+			go func(topic string,c chan string){
+				for msg:=range c{
+					fmt.Fprintf(conn, "\n[PUB %s]: %s\n> ", topic, msg)
+				}
+			}(subscribedTopic,userChan)
 		}
 
 		conn.Write([]byte(response+"\n"))

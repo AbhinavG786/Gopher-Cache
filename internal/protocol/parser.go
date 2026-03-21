@@ -2,8 +2,10 @@ package parser
 
 import (
 	"strings"
-	store "github.com/AbhinavG786/Gopher-Cache.git/internal/engine"
 	"time"
+
+	store "github.com/AbhinavG786/Gopher-Cache.git/internal/engine"
+	"github.com/AbhinavG786/Gopher-Cache.git/internal/pubsub"
 )
 
 type StoreInterface interface{
@@ -12,22 +14,22 @@ type StoreInterface interface{
 	Delete(key string)
 }
 
-func Process(s StoreInterface,input string) string{
+func Process(s StoreInterface,h *pubsub.Hub,input string) (string, chan string){
 	parts:=strings.Fields(strings.TrimSpace(input))
 	if len(parts)==0{
-		return "Empty command"
+		return "Empty command", nil
 	}
 	command:=strings.ToUpper(parts[0])
 	switch command{
 	case "GET":
 		if len(parts)<2{
-			return "Usage: GET <key>"
+			return "Usage: GET <key>", nil
 		}
 		val,ok:=s.Get(parts[1])
 		if !ok{
-			return "Key not found"
+			return "Key not found", nil
 		}
-		return val.Value
+		return val.Value, nil
 	case "SET":
 		var key, value, ttlPart string
 
@@ -38,7 +40,7 @@ func Process(s StoreInterface,input string) string{
 
 			prefix := strings.Fields(input[:firstQuote])
 			if len(prefix) < 2 {
-				return "Usage: SET <key> \"<value>\" [TTL]"
+				return "Usage: SET <key> \"<value>\" [TTL]", nil
 			}
 			key = prefix[1]
 
@@ -51,7 +53,7 @@ func Process(s StoreInterface,input string) string{
 		} else {
 
 			if len(parts) < 3 {
-				return "Usage: SET <key> <value> [TTL in seconds]"
+				return "Usage: SET <key> <value> [TTL in seconds]", nil
 			}
 			key = parts[1]
 			value = parts[2]
@@ -64,22 +66,45 @@ func Process(s StoreInterface,input string) string{
 		if ttlPart != "" {
 			ttl, err := time.ParseDuration(ttlPart + "s")
 			if err != nil {
-				return "Invalid TTL format"
+				return "Invalid TTL format", nil
 			}
 			cache.TTL = time.Now().Add(ttl)
 		}
 
 		s.Set(cache)
-		return "Key set"
+		return "Key set", nil
 	case "DEL":
 		if len(parts)<2{
-			return "Usage: DEL <key>"
+			return "Usage: DEL <key>", nil
 		}
 		s.Delete(parts[1])
-		return "Key deleted"
+		return "Key deleted", nil
+	case "SUBSCRIBE":
+		if len(parts)<2{
+			return "Usage: SUBSCRIBE <topic>", nil
+		}
+		topic:=parts[1]
+		userChan:=h.Subscribe(topic)
+		return "Subscribed", userChan
+	case "PUBLISH":
+		if len(parts)<3{
+			return "Usage: PUBLISH <topic> <message>", nil
+		}
+		topic:=parts[1]
+		message:=strings.Join(parts[2:]," ")
+		h.Publish(topic,message)
+		return "Message published",nil
+	case "UNSUBSCRIBE":
+		if len(parts)<2{
+			return "Usage: UNSUBSCRIBE <topic>", nil
+		}
+		topic:=parts[1]
+		userChan:=make(chan string)
+		h.Unsubscribe(topic,userChan)
+		return "Unsubscribed from " + topic, nil
 	case "QUIT":
-		return "Goodbye!"
+		return "Goodbye!", nil
 	default:
-		return "Invalid command"
+		return "Invalid command", nil
 	}
 }
